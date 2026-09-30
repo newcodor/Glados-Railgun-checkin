@@ -167,7 +167,7 @@ class Config:
             self.user_agent = self.DEFAULT_UA
         else:
             self.user_agent = ua_env
-            logger.info(f"{LogEmoji.SUCCESS} 使用指定的UA头: {self.ua_env}")
+            logger.info(f"{LogEmoji.SUCCESS} 使用指定的UA头: {ua_env}")
 
         if  wechatwork_env:
             self.webhook_url = wechatwork_env
