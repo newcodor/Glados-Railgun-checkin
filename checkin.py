@@ -95,12 +95,16 @@ class Config:
     """应用配置"""
 
     ENV_PUSH_KEY = "PUSHDEER_SENDKEY"
-    ENV_COOKIES = "GLADOS_COOKIES"
+    ENV_COOKIES = "GLADOS_COOKIES" 
+    ENV_UA = "GLADOS_USER_AGENT" 
+    ENV_WECHATWORK = "WECHATWORK_CONFIG" 
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
 
     """默认兑换计划"""
     DEFAULT_EXCHANGE_PLAN = "plan500"
+
+    DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
     """默认是否输出详细响应"""
     DEFAULT_VERBOSE = False
@@ -119,6 +123,8 @@ class Config:
         self.push_key: str = ""
         self.cookies_list: List[str] = []
         self.exchange_plan: str = self.DEFAULT_EXCHANGE_PLAN
+        self.user_agent: str = self.DEFAULT_UA
+        self.webhook_url: str = ""
         self.verbose: bool = self.DEFAULT_VERBOSE
         self._load_config()
 
@@ -127,6 +133,8 @@ class Config:
         push_key_env: Optional[str] = os.environ.get(self.ENV_PUSH_KEY)
         raw_cookies_env: Optional[str] = os.environ.get(self.ENV_COOKIES)
         exchange_plan_env: Optional[str] = os.environ.get(self.ENV_EXCHANGE_PLAN)
+        ua_env: Optional[str] = os.environ.get(self.ENV_UA)
+        wechatwork_env: Optional[str] = os.environ.get(self.ENV_WECHATWORK)
         verbose_env: Optional[str] = os.environ.get(self.ENV_VERBOSE)
 
         if not push_key_env:
@@ -142,7 +150,7 @@ class Config:
             self.cookies_list = [cookie.strip() for cookie in raw_cookies_env.split("&") if cookie.strip()]
             if not self.cookies_list:
                 raise ValueError(f"环境变量 '{self.ENV_COOKIES}' 已设置，但未包含任何有效的 Cookie。")
-
+        
         if not exchange_plan_env:
             logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_EXCHANGE_PLAN}' 未设置，将使用默认兑换计划 {self.DEFAULT_EXCHANGE_PLAN}。")
             self.exchange_plan = self.DEFAULT_EXCHANGE_PLAN
@@ -154,9 +162,22 @@ class Config:
                 logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_EXCHANGE_PLAN}' 的值 '{exchange_plan_env}' 无效，将使用默认兑换计划 {self.DEFAULT_EXCHANGE_PLAN}。")
                 self.exchange_plan = self.DEFAULT_EXCHANGE_PLAN
 
+        if not ua_env:
+            logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_UA}' 未设置，将使用默认UA头 {self.DEFAULT_UA}。")
+            self.user_agent = self.DEFAULT_UA
+        else:
+            self.user_agent = ua_env
+            logger.info(f"{LogEmoji.SUCCESS} 使用指定的UA头: {self.ua_env}")
+
+        if  wechatwork_env:
+            self.webhook_url = wechatwork_env
+            logger.info(f"{LogEmoji.SUCCESS} 使用企业微信机器人")
+        else:
+            logger.info(f"{LogEmoji.INFO} 未配置企业微信机器人")
         logger.info(f"{LogEmoji.INFO} 共加载了 {len(self.cookies_list)} 个 Cookie 用于签到。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_PUSH_KEY} {'已设置' if push_key_env else '未设置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_EXCHANGE_PLAN}: {self.exchange_plan}。")
+        logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_UA}: {self.user_agent}。")
 
         if verbose_env is not None:
             verbose_env_lower = verbose_env.lower()
@@ -231,12 +252,14 @@ class API:
         """获取完整 URL"""
         return f"https://{self.domain}{path}"
 
-    def _make_request(self, url: str, method: str, data: Optional[Dict] = None, cookies: str = "") -> Optional[requests.Response]:
+    def _make_request(self, url: str, method: str, data: Optional[Dict] = None, cookies: str = "",user_agent: str = "") -> Optional[requests.Response]:
         """发送 HTTP 请求"""
         session_headers = self.headers.copy()
+        session_headers["User-Agent"]=user_agent
         session_headers["cookie"] = cookies
 
         try:
+            self._log("info", LogEmoji.INFO, f'User-Agent: {session_headers["User-Agent"]}', force=True)
             if method.upper() == "POST":
                 response = self.session.post(url, headers=session_headers, data=data, timeout=(60, 120))
             elif method.upper() == "GET":
@@ -258,11 +281,11 @@ class API:
         return {"token": self.domain}
 
     @log_method
-    def checkin(self, cookies: str) -> Dict[str, Union[str, CheckinStatus]]:
+    def checkin(self, cookies: str,user_agent: str) -> Dict[str, Union[str, CheckinStatus]]:
         """执行签到"""
         url = self._get_full_url(self.CHECKIN_URL)
         checkin_data = self._get_checkin_data()
-        response = self._make_request(url, "POST", checkin_data, cookies)
+        response = self._make_request(url, "POST", checkin_data, cookies,user_agent=user_agent)
 
         result = {
             "status": "签到失败",
@@ -304,11 +327,11 @@ class API:
         return result
 
     @log_method
-    def get_status(self, cookies: str) -> Tuple[str, int]:
+    def get_status(self, cookies: str,user_agent: str) -> Tuple[str, int]:
         """获取状态"""
 
         url = self._get_full_url(self.STATUS_URL)
-        response = self._make_request(url, "GET", cookies=cookies)
+        response = self._make_request(url, "GET", cookies=cookies,user_agent=user_agent)
 
         if response:
             data = response.json()
@@ -327,10 +350,10 @@ class API:
             return "None 天", -2
 
     @log_method
-    def get_points(self, cookies: str) -> Tuple[str, int]:
+    def get_points(self, cookies: str,user_agent: str) -> Tuple[str, int]:
         """获取积分"""
         url = self._get_full_url(self.POINTS_URL)
-        response = self._make_request(url, "GET", cookies=cookies)
+        response = self._make_request(url, "GET", cookies=cookies,user_agent=user_agent)
 
         if response:
             data = response.json()
@@ -351,10 +374,10 @@ class API:
             return "None 积分", 0
 
     @log_method
-    def exchange(self, cookies: str, plan: str, required_points: int) -> str:
+    def exchange(self, cookies: str,user_agent: str, plan: str, required_points: int) -> str:
         """执行兑换"""
         url = self._get_full_url(self.EXCHANGE_URL)
-        response = self._make_request(url, "POST", {"planType": plan}, cookies)
+        response = self._make_request(url, "POST", {"planType": plan}, cookies,user_agent=user_agent)
 
         if response:
             data = response.json()
@@ -411,6 +434,22 @@ class PushService:
             logger.error(f"{LogEmoji.ERROR} 发送推送通知失败: {e}")
             return False
 
+class WechatWorkWebhook:
+    headers = {"Content-Type": "text/plain"}
+    
+    def __init__(self, webhook_url):
+        self.webhook_url = webhook_url
+        
+    def text(self, text, mentioned_list=[], mentioned_mobile_list=[]):
+        data = {
+              "msgtype": "text",
+              "text": {
+                  "content": text,
+                  "mentioned_list": mentioned_list,
+                  "mentioned_mobile_list": mentioned_mobile_list
+              }
+           }
+        return requests.post(self.webhook_url, headers=self.headers, json=data).json()
 
 class Checker:
     """签到"""
@@ -429,6 +468,7 @@ class Checker:
         """执行所有签到任务"""
         cookie_count = len(self.config.cookies_list)
         domain_count = len(self.config.DOMAINS)
+        user_agent = self.config.user_agent
         total_tasks = cookie_count * domain_count
         task_idx = 0
 
@@ -441,7 +481,7 @@ class Checker:
                 task_idx += 1
                 logger.info(f"{LogEmoji.INFO} ----- 任务 {task_idx}/{total_tasks}: {LogEmoji.COOKIE}[{cookie_idx}] on {LogEmoji.DOMAIN}[{domain}] -----")
 
-                result = self._checkin_on_domain(cookie, cookie_idx, domain)
+                result = self._checkin_on_domain(cookie, cookie_idx, domain,user_agent)
                 self.results.append(result)
 
                 result_message = f"结果: {result.status}"
@@ -452,24 +492,24 @@ class Checker:
                 else:
                     self._log(cookie_idx, domain, LogEmoji.WARNING, result_message, force=True)
 
-    def _checkin_on_domain(self, cookie: str, cookie_idx: int, domain: str) -> CheckinResult:
+    def _checkin_on_domain(self, cookie: str, cookie_idx: int, domain: str,user_agent: str) -> CheckinResult:
         result = CheckinResult(cookie_idx, domain)
 
         with API(domain, cookie_idx, verbose=self.config.verbose) as api:
             # 1. 获取状态
             self._log(cookie_idx, domain, LogEmoji.STATUS, "查询剩余天数")
-            days_str, status_code = api.get_status(cookie)
+            days_str, status_code = api.get_status(cookie,user_agent)
             result.days = days_str
 
             # 2. 签到
             self._log(cookie_idx, domain, LogEmoji.CHECKIN, "执行签到")
-            checkin_result = api.checkin(cookie)
+            checkin_result = api.checkin(cookie,user_agent)
             result.status = checkin_result["status"]
             result.code = checkin_result.get("code", CheckinStatus.FAILURE)
 
             # 3. 获取积分
             self._log(cookie_idx, domain, LogEmoji.POINTS, "查询总积分")
-            points_str, points_num = api.get_points(cookie)
+            points_str, points_num = api.get_points(cookie,user_agent)
             result.points_total = points_str
 
             # 4. 执行兑换
@@ -480,7 +520,7 @@ class Checker:
                 LogEmoji.EXCHANGE,
                 f"开始兑换 {self.config.exchange_plan} (需要 {required_points} 积分)",
             )
-            result.exchange = api.exchange(cookie, self.config.exchange_plan, required_points)
+            result.exchange = api.exchange(cookie,user_agent, self.config.exchange_plan, required_points)
 
         return result
 
@@ -521,6 +561,7 @@ logger = init_logger()
 
 def main():
     """主函数"""
+    title=""
     try:
         # 1. 加载配置
         logger.info(f"{LogEmoji.START} 步骤 1: 加载配置")
@@ -548,6 +589,9 @@ def main():
     logger.info(f"{LogEmoji.START} 步骤 4: 发送推送")
     push_service = PushService(config if "config" in locals() else "")
     push_service.send(title, content)
+    if config.webhook_url:
+        wechatwork_servie = WechatWorkWebhook(config.webhook_url)
+        wechatwork_servie.text(title,["@all"])
     logger.info(f"{LogEmoji.END} 签到完成")
 
 
