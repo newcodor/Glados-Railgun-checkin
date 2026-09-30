@@ -167,7 +167,7 @@ class Config:
             self.user_agent = self.DEFAULT_UA
         else:
             self.user_agent = ua_env
-            logger.info(f"{LogEmoji.SUCCESS} 使用指定的UA头: {ua_env}")
+            logger.info(f"{LogEmoji.SUCCESS} 使用指定的UA头: {self.user_agent}")
 
         if  wechatwork_env:
             self.webhook_url = wechatwork_env
@@ -238,8 +238,7 @@ class API:
     def _log(self, level: str, emoji: str, message: str, force: bool = False) -> None:
         """统一日志输出方法"""
 
-        log_message = f"{LogEmoji.COOKIE}[{self.cookie_index}] {LogEmoji.DOMAIN}[{self.domain}] {emoji} {message}"
-
+        log_message = f"{LogEmoji.INFO}[{self.cookie_index}] {LogEmoji.DOMAIN}[{self.domain}] {emoji} {message}"
         if force or self.verbose:
             if level == "info":
                 logger.info(log_message)
@@ -247,6 +246,8 @@ class API:
                 logger.warning(log_message)
             elif level == "error":
                 logger.error(log_message)
+
+    
 
     def _get_full_url(self, path: str) -> str:
         """获取完整 URL"""
@@ -589,9 +590,14 @@ def main():
     logger.info(f"{LogEmoji.START} 步骤 4: 发送推送")
     push_service = PushService(config if "config" in locals() else "")
     push_service.send(title, content)
+    # 仅出现失败时推送
     if config.webhook_url:
-        wechatwork_servie = WechatWorkWebhook(config.webhook_url)
-        wechatwork_servie.text(title,["@all"])
+        if "失败0" not in title:
+            wechatwork_servie = WechatWorkWebhook(config.webhook_url)
+            wechatwork_servie.text(title,["@all"])
+            logger.info(f"{LogEmoji.WARNING} 失败结果已推送企业微信")
+        else:
+            logger.info(f"{LogEmoji.INFO} 无失败结果,无需推送企业微信")
     logger.info(f"{LogEmoji.END} 签到完成")
 
 
